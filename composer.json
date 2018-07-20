@@ -1,6 +1,6 @@
 {
-  "name": "ctidigital/magento2-configurator",
-  "description": "Keep magento persistently configured using files",
+  "name": "hammer/magento2-configurator",
+  "description": "This is a fork from CTIDigital's configurator repo. Keep magento persistently configured using files",
   "type":"magento2-module",
   "repositories": [
     {
