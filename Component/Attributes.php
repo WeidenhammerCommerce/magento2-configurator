@@ -37,6 +37,8 @@ class Attributes extends YamlComponentAbstract
      */
     protected $attributeRepository;
 
+    protected $hasOptions = false;
+
     /**
      * @var array
      */
@@ -106,6 +108,7 @@ class Attributes extends YamlComponentAbstract
      */
     protected function processAttribute($attributeCode, array $attributeConfig)
     {
+        $this->hasOptions = false;
         $updateAttribute = true;
         $attributeExists = false;
         $attributeArray = $this->eavSetup->getAttribute($this->entityTypeId, $attributeCode);
@@ -117,6 +120,9 @@ class Attributes extends YamlComponentAbstract
             if (isset($attributeConfig['option'])) {
                 $newAttributeOptions = $this->manageAttributeOptions($attributeCode, $attributeConfig['option']);
                 $attributeConfig['option']['values'] = $newAttributeOptions;
+                if ($this->hasOptions && sizeof($newAttributeOptions) > 0) {
+                    $updateAttribute = true;
+                }
             }
         }
 
@@ -201,7 +207,7 @@ class Attributes extends YamlComponentAbstract
         return $name;
     }
 
-    private function manageAttributeOptions($attributeCode, $option)
+    protected function manageAttributeOptions($attributeCode, $option)
     {
         $attributeOptions = [];
         try {
@@ -222,6 +228,7 @@ class Attributes extends YamlComponentAbstract
         // Loop through existing attributes options
         $existingAttributeOptions = array();
         foreach ($attributeOptions as $attributeOption) {
+            $this->hasOptions = true;
             $value = $attributeOption->getLabel();
             $existingAttributeOptions[] = $value;
         }

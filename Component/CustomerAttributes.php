@@ -5,10 +5,9 @@ namespace CtiDigital\Configurator\Component;
 use CtiDigital\Configurator\Api\LoggerInterface;
 use CtiDigital\Configurator\Exception\ComponentException;
 use Magento\Customer\Model\Customer;
-use Magento\Eav\Setup\EavSetup;
-use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\ObjectManagerInterface;
 use Magento\Eav\Model\AttributeRepository;
+use Magento\Eav\Setup\EavSetup;
 use Magento\Customer\Setup\CustomerSetupFactory;
 use Magento\Customer\Setup\CustomerSetup;
 use Magento\Customer\Model\ResourceModel\Attribute;
@@ -38,11 +37,6 @@ class CustomerAttributes extends Attributes
     ];
 
     /**
-     * @var CustomerSetupFactory
-     */
-    protected $customerSetup;
-
-    /**
      * @var Attribute
      */
     protected $attributeResource;
@@ -64,13 +58,13 @@ class CustomerAttributes extends Attributes
         ObjectManagerInterface $objectManager,
         EavSetup $eavSetup,
         AttributeRepository $attributeRepository,
-        CustomerSetupFactory $customerSetupFactory,
+        CustomerSetup $customerSetup,
         Attribute $attributeResource
     ) {
         $this->attributeConfigMap = array_merge($this->attributeConfigMap, $this->customerConfigMap);
-        $this->customerSetup = $customerSetupFactory;
         $this->attributeResource = $attributeResource;
         parent::__construct($log, $objectManager, $eavSetup, $attributeRepository);
+        $this->eavSetup = $customerSetup;
     }
 
     /**
@@ -81,7 +75,7 @@ class CustomerAttributes extends Attributes
         try {
             foreach ($attributeConfigurationData['customer_attributes'] as $attributeCode => $attributeConfiguration) {
                 $this->processAttribute($attributeCode, $attributeConfiguration);
-                $this->addAdditionalValues($attributeCode, $attributeConfiguration);
+                //$this->addAdditionalValues($attributeCode, $attributeConfiguration);
             }
         } catch (ComponentException $e) {
             $this->log->logError($e->getMessage());
@@ -89,42 +83,58 @@ class CustomerAttributes extends Attributes
     }
 
     /**
-     * Adds necessary additional values to the attribute. Without these, values can't be saved
-     * to the attribute and it won't appear in any forms.
-     *
      * @param $attributeCode
-     * @param $attributeConfiguration
+     * @param $attributeConfig
      */
-    protected function addAdditionalValues($attributeCode, $attributeConfiguration)
+    protected function processAttribute($attributeCode, array $attributeConfig)
     {
-        if (!isset($attributeConfiguration['used_in_forms']) ||
-            !isset($attributeConfiguration['used_in_forms']['values'])) {
-            $attributeConfiguration['used_in_forms'] = $this->defaultForms;
+        $this->hasOptions = false;
+        $updateAttribute = true;
+        $attributeExists = false;
+        $attributeArray = $this->eavSetup->getAttribute($this->entityTypeId, $attributeCode);
+        if ($attributeArray && $attributeArray['attribute_id']) {
+            $attributeExists = true;
+            $this->log->logComment(sprintf('Attribute %s exists. Checking for updates.', $attributeCode));
+            $updateAttribute = $this->checkForAttributeUpdates($attributeCode, $attributeArray, $attributeConfig);
+
+            if (isset($attributeConfig['option'])) {
+                $newAttributeOptions = $this->manageAttributeOptions($attributeCode, $attributeConfig['option']);
+                $attributeConfig['option']['values'] = $newAttributeOptions;
+                if ($this->hasOptions && sizeof($newAttributeOptions) > 0) {
+                    $updateAttribute = true;
+                }
+            }
         }
 
-        /** @var CustomerSetup $customerSetup */
-        $customerSetup = $this->customerSetup->create();
-        try {
-            $attribute = $customerSetup->getEavConfig()
-                ->getAttribute($this->entityTypeId, $attributeCode)
-                ->addData([
-                    'attribute_set_id' => self::DEFAULT_ATTRIBUTE_SET_ID,
-                    'attribute_group_id' => self::DEFAULT_ATTRIBUTE_GROUP_ID,
-                    'used_in_forms' => $attributeConfiguration['used_in_forms']['values']
-                ]);
-            $this->attributeResource->save($attribute);
-        } catch (LocalizedException $e) {
-            $this->log->logError(sprintf(
-                'Error applying additional values to %s: %s',
+        if ($updateAttribute) {
+
+            if (!array_key_exists('user_defined', $attributeConfig)) {
+                $attributeConfig['user_defined'] = 1;
+            }
+
+            $this->eavSetup->addAttribute(
+                $this->entityTypeId,
                 $attributeCode,
-                $e->getMessage()
-            ));
-        } catch (\Exception $e) {
-            $this->log->logError(sprintf(
-                'Error saving additional values for %s: %s',
-                $attributeCode,
-                $e->getMessage()
-            ));
+                $attributeConfig
+            );
+
+            if (!isset($attributeConfiguration['used_in_forms']) ||
+                !isset($attributeConfiguration['used_in_forms']['values'])) {
+                $attributeConfiguration['used_in_forms'] = $this->defaultForms;
+            }
+
+            $this->eavSetup->getEavConfig()->getAttribute($this->entityTypeId, $attributeCode)->addData([
+                'attribute_set_id' => self::DEFAULT_ATTRIBUTE_SET_ID,
+                'attribute_group_id' => self::DEFAULT_ATTRIBUTE_GROUP_ID,
+                'used_in_forms' => $attributeConfiguration['used_in_forms']['values']
+            ]);
+
+            if ($attributeExists) {
+                $this->log->logInfo(sprintf('Attribute %s updated.', $attributeCode));
+                return;
+            }
+
+            $this->log->logInfo(sprintf('Attribute %s created.', $attributeCode));
         }
     }
 }
